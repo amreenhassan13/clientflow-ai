@@ -1,4 +1,4 @@
-[README.md](https://github.com/user-attachments/files/35225983/README.md)
+
 # ClientFlow AI
 
 Lead capture and customer operations for a service business. A Next.js app on Vercel holds the admin dashboard, the public quote form and all APIs. A small WordPress plugin adds the same quote form to a WordPress site. Leads are stored in PostgreSQL, synced to HubSpot, followed up by Twilio SMS (only with consent), and exported daily to BigQuery for historical reporting.
