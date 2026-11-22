@@ -1,0 +1,39 @@
+{
+  "name": "clientflow-ai",
+  "version": "1.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:smoke": "node scripts/smoke-test.mjs",
+    "db:migrate": "node scripts/migrate.mjs",
+    "auth:hash": "node scripts/hash-password.mjs"
+  },
+  "dependencies": {
+    "@google-cloud/bigquery": "^8.1.0",
+    "jose": "^6.1.0",
+    "lucide-react": "^0.468.0",
+    "next": "^15.5.0",
+    "pg": "^8.16.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "recharts": "^3.1.0",
+    "server-only": "^0.0.1",
+    "twilio": "^5.9.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/pg": "^8.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "typescript": "^5.9.0",
+    "tsx": "^4.20.0"
+  },
+  "engines": {
+    "node": ">=20.12"
+  }
+}
