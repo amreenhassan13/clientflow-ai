@@ -1,9 +1,26 @@
-[README.md](https://github.com/user-attachments/files/35226109/README.md)
 # ClientFlow AI
 
-Lead capture and customer operations for a service business. A Next.js app on Vercel holds the admin dashboard, the public quote form and all APIs. A small WordPress plugin adds the same quote form to a WordPress site. Leads are stored in PostgreSQL, synced to HubSpot, followed up by Twilio SMS (only with consent), and exported daily to BigQuery for historical reporting.
+Lead capture and customer operations for a service business. A Next.js app on Vercel holds the admin dashboard, the public quote form and all APIs. A small WordPress plugin adds the same quote form to a WordPress site. Leads are stored in PostgreSQL, synced to HubSpot, followed up by Twilio SMS (only with consent), and exported to BigQuery for historical reporting.
 
-Version 1.1.0 was tested end to end against PostgreSQL 16, a mock HubSpot API, signed Twilio webhooks and the real PHP plugin. Live HubSpot, Twilio and Google Cloud accounts still need a test with your own credentials before you take real customers (see "Before going live").
+**Live deployment:** https://clientflow-ai-p7y4.vercel.app
+
+The dashboard is private, so the root URL opens the sign-in page. The public quote form is at [/quote](https://clientflow-ai-p7y4.vercel.app/quote). Anything submitted there is stored as a real lead, so please use test details.
+
+Built with Next.js 15 (App Router, TypeScript), PostgreSQL on Neon, the HubSpot CRM API, Twilio, BigQuery and a PHP 8 WordPress plugin.
+
+## Deployment status
+
+| Part | On the live deployment |
+|---|---|
+| Next.js app on Vercel | Running, admin sign-in enabled (`DEMO_MODE=false`) |
+| PostgreSQL (Neon) | Connected, migrations applied |
+| HubSpot | Connected with a Service Key; leads sync as contacts |
+| BigQuery | Connected through the BigQuery Sandbox; events load into `clientflow.events` |
+| Twilio SMS | Built and tested with signed webhooks, switched off here (`SMS_ENABLED` unset) |
+| WordPress plugin | Built and tested against the real PHP plugin; no WordPress site attached here |
+| Smoke test | All 20 checks pass against the live URL |
+
+SMS is off on this deployment because the main Bangladeshi networks block texts from unregistered senders and don't support replies, so the STOP flow can't be tested from here. Everything else in the table above was checked against the live URL.
 
 ## How it works
 
@@ -27,6 +44,60 @@ A new lead is written to PostgreSQL in one transaction together with its event a
 
 Every request that creates a lead carries an idempotency key. Double clicks, browser retries, WordPress outbox retries and replayed webhook requests all return the original lead instead of creating a second one.
 
+## Screenshots
+
+All screenshots are from the live deployment. Personal contact details are covered.
+
+### Business overview
+
+Lead counts, won revenue, win conversion, the acquisition trend, pipeline stages and integration health for the last 14 days.
+
+![Business overview dashboard](docs/overview.png)
+
+### Lead management and system health
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/leads.png" alt="Lead management table with HubSpot sync status, deal values and pipeline stage"></td>
+    <td width="50%"><img src="docs/integrations.png" alt="System health page showing PostgreSQL, HubSpot, BigQuery, WordPress intake and the scheduled worker as configured"></td>
+  </tr>
+  <tr>
+    <td>Each lead shows its source, estimated deal value, HubSpot sync status, SMS consent and stage.</td>
+    <td>Integration status is read from environment variables at request time. Twilio is shown as turned off.</td>
+  </tr>
+</table>
+
+### Public quote form
+
+The form visitors fill in. SMS updates are opt-in, and the consent text mentions STOP.
+
+![Public quote form](docs/quote-form.png)
+
+### HubSpot sync
+
+Leads from the website and the signed WordPress endpoint, created as HubSpot contacts by the background worker.
+
+![HubSpot contacts created by ClientFlow](docs/hubspot-contacts.png)
+
+### BigQuery export
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/bigquery.png" alt="BigQuery query on clean_events grouped by event type"></td>
+    <td width="50%"><img src="docs/bigquery-schema.png" alt="clean_events schema with event_id, event_type, source, occurred_at and lead_ref"></td>
+  </tr>
+  <tr>
+    <td>Events loaded by the worker, counted by type through the deduplicating <code>clean_events</code> view.</td>
+    <td>The exported schema. Only a hashed <code>lead_ref</code> identifies a lead, with no names, emails or phone numbers.</td>
+  </tr>
+</table>
+
+### Smoke test
+
+`npm run test:smoke` against the live URL: intake, duplicate protection, origin and signature checks, login, deal values, the won-to-survey flow, CSV export and cron protection. This run was taken before BigQuery was connected, which is why the last line reports it as not configured.
+
+![Smoke test output with all 20 checks passing](docs/smoke-test.png)
+
 ## Preview in demo mode
 
 Requires Node 20.12 or newer.
@@ -47,7 +118,7 @@ Pages: `/` dashboard, `/leads` lead management, `/settings` integrations and hea
 
 Create a managed PostgreSQL 13+ database (Neon and Supabase both work). Copy the pooled connection string with TLS, for example a Neon host ending in `-pooler` with `?sslmode=require`. Serverless functions open many short connections, so the pooled endpoint matters.
 
-Run the migrations once from your computer:
+Run the migrations once from your computer. Use the unpooled (direct) connection string for this step:
 
 ```bash
 DATABASE_URL="postgresql://..." npm run db:migrate
@@ -64,9 +135,11 @@ openssl rand -hex 32                       # WORDPRESS_WEBHOOK_SECRET
 npm run auth:hash -- "a long unique admin password"   # ADMIN_PASSWORD_HASH
 ```
 
+On Windows without OpenSSL, `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` gives the same kind of value. The admin password needs at least 14 characters. Passing it on the command line leaves it in your shell history, so clear that afterwards or call `node scripts/hash-password.mjs` from a script that reads the password without echoing it.
+
 ### 3. Project
 
-Import the repository in Vercel as a Next.js project and add the variables from `.env.example` under Project Settings, Environment Variables. At minimum set `DEMO_MODE=false`, `DATABASE_URL`, `APP_URL` (your exact public https URL, no trailing slash), `AUTH_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD_HASH`, `CRON_SECRET` and `BUSINESS_TIMEZONE`. Deploy.
+Import the repository in Vercel as a Next.js project and add the variables from `.env.example` under Project Settings, Environment Variables. At minimum set `DEMO_MODE=false`, `DATABASE_URL`, `APP_URL` (your exact public https URL, no trailing slash), `AUTH_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD_HASH`, `CRON_SECRET` and `BUSINESS_TIMEZONE`. Variables starting with `NEXT_PUBLIC_` are built into the browser code, so they can't be marked Sensitive and need a redeploy to change. Deploy.
 
 `vercel.json` schedules `/api/cron/process` once a day at 00:00 UTC, which every Vercel plan allows. New leads don't wait for it. If you want surveys and retries to run more often, use a more frequent schedule on a paid plan or call the endpoint from any scheduler with the `Authorization: Bearer <CRON_SECRET>` header. See https://vercel.com/docs/cron-jobs.
 
@@ -79,9 +152,11 @@ WORDPRESS_WEBHOOK_SECRET=... CRON_SECRET=... npm run test:smoke
 
 The smoke test runs 20 checks: intake, duplicate protection, origin and signature rejection, login, deal values, the won-to-survey flow, analytics, CSV export and cron protection. It creates two leads named "Smoke Test ...", which you can mark as lost afterwards.
 
+If sign-in fails with "Invalid origin", `APP_URL` doesn't match the address in the browser. It must include `https://` and have no trailing slash.
+
 ## WordPress plugin
 
-1. In WordPress go to Plugins, Add New, Upload Plugin and upload `clientflow-leads.zip` (or copy `wordpress/clientflow-leads` into `wp-content/plugins/`). It needs normal PHP 8.0+ hosting; it does not run on Vercel. To rebuild the ZIP: `cd wordpress && zip -r clientflow-leads.zip clientflow-leads`.
+1. In WordPress go to Plugins, Add New, Upload Plugin and upload `clientflow-leads.zip` (or copy `wordpress/clientflow-leads` into `wp-content/plugins/`). It needs normal PHP 8.0+ hosting with plugin uploads allowed; it does not run on Vercel, and WordPress.com only allows custom plugins on its Business plan and above. To rebuild the ZIP: `cd wordpress && zip -r clientflow-leads.zip clientflow-leads`.
 2. Add to `wp-config.php` above the "stop editing" line:
 
    ```php
@@ -97,9 +172,9 @@ Queued enquiries contain contact details until they are delivered, so include th
 
 ## HubSpot
 
-HubSpot no longer allows new legacy private apps (creation was switched off on 26 October 2026 for existing accounts). Use a Service Key instead. Create one in your HubSpot account settings with the `crm.objects.contacts.read` and `crm.objects.contacts.write` scopes, and put it in `HUBSPOT_ACCESS_TOKEN`. References: https://developers.hubspot.com/changelog/service-keys and https://developers.hubspot.com/changelog/legacy-private-app-creation-sunset.
+HubSpot no longer allows new legacy private apps (creation was switched off on 26 October 2026 for existing accounts). Use a Service Key instead. In HubSpot, open Development, then Keys, then Service keys (also under Settings, Integrations), create a key with the `crm.objects.contacts.read` and `crm.objects.contacts.write` scopes, and put it in `HUBSPOT_ACCESS_TOKEN`. References: https://developers.hubspot.com/changelog/service-keys and https://developers.hubspot.com/changelog/legacy-private-app-creation-sunset.
 
-The worker searches contacts by email, then updates the match or creates a new contact. If a create races with another request (HTTP 409), it updates the existing contact instead. Rate limits and server errors are retried; rejected tokens fail immediately so you can fix them and press "Retry all failed" on the settings page. Leads captured before HubSpot was configured are marked "Not configured" and re-queued automatically once the token is added.
+The worker searches contacts by email, then updates the match or creates a new contact. If a create races with another request (HTTP 409), it updates the existing contact instead. Rate limits and server errors are retried; rejected tokens fail immediately so you can fix them and press "Retry all failed" on the settings page. Leads captured before HubSpot was configured are marked "Not configured" and re-queued on the next worker run once the token is added.
 
 Requests use HubSpot's date-versioned paths (`/crm/objects/2026-09/contacts`). To also store the service and lead source, create custom contact properties in HubSpot and set their internal names in `HUBSPOT_PROPERTY_SERVICE` and `HUBSPOT_PROPERTY_SOURCE`.
 
@@ -113,7 +188,7 @@ A text is only sent when the person ticked the consent box, gave a mobile number
 
 When someone replies STOP, Twilio sends its own confirmation and the inbound webhook stores a hash of the number in `sms_suppressions` and turns off consent on that person's leads. Replying START lifts the block, but a new enquiry still needs the consent box ticked. Each lead gets at most one welcome text and one survey text.
 
-You still need an eligible sender, any country or carrier registration your destination requires (for example A2P 10DLC in the US), and a funded account. Trial accounts can only text verified numbers.
+You still need an eligible sender, any country or carrier registration your destination requires (for example A2P 10DLC in the US, or a registered alphanumeric sender ID for Grameenphone, Robi and Teletalk in Bangladesh), and a funded account. Trial accounts can only text verified numbers. Check Twilio's country guidelines before relying on replies, because some countries don't support two-way SMS.
 
 ## Survey follow-up
 
@@ -122,8 +197,8 @@ When a lead is marked won, a survey text is scheduled for 24 hours later (it goe
 ## BigQuery
 
 1. In the Google Cloud console create a project and a dataset (default name `clientflow`).
-2. Create a service account with BigQuery Data Editor on the dataset and BigQuery Job User on the project, create a JSON key, and paste the whole JSON into `GOOGLE_SERVICE_ACCOUNT_JSON` on one line. Set `GOOGLE_CLOUD_PROJECT`.
-3. The first export creates the `events` table, partitioned by day on `occurred_at`.
+2. Create a service account. Give it BigQuery Job User on the project and BigQuery Data Editor on the dataset. Without Job User, exports fail with "does not have bigquery.jobs.create permission". Create a JSON key, keep the file outside the repository, and paste the whole JSON into `GOOGLE_SERVICE_ACCOUNT_JSON` on one line. Set `GOOGLE_CLOUD_PROJECT` to the project ID (not the display name).
+3. The first export creates the `events` table, partitioned by day on `occurred_at`. To run it without waiting for the daily cron, call `/api/cron/process` with the `Authorization: Bearer <CRON_SECRET>` header.
 4. Run the view in `analytics/queries.sql` to create `clean_events`, then use the example queries.
 
 Exports use batch load jobs, which the BigQuery Sandbox allows (streaming inserts are not available there). Each cron run loads up to 10 batches of 1,000 events. Events are only marked exported after BigQuery confirms the load; if a load fails they stay queued for the next run.
@@ -177,8 +252,13 @@ components/             dashboard and layout
 lib/                    database, auth, validation, analytics, worker
 lib/integrations/       hubspot, twilio, bigquery clients
 db/migrations/          SQL migrations
+docs/                   screenshots used in this README
 scripts/                migrate, password hash, smoke test
 tests/                  unit tests
 wordpress/              PHP plugin
 analytics/queries.sql   BigQuery view and example queries
 ```
+
+## Author
+
+Built by Amreen Hassan ([@amreenhassan13](https://github.com/amreenhassan13)).
